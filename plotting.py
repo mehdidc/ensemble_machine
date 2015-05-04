@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 import numpy as np
 
-def plot_model_embeddings(models, Z, title="untitled"):
+def plot_model_embeddings(models, Z, title="untitled", save_file=None):
 
     plt.ion()
 
@@ -43,4 +43,6 @@ def plot_model_embeddings(models, Z, title="untitled"):
         return True
 
     fig.canvas.mpl_connect('pick_event', onpick3)
+    if save_file is not None:
+        plt.savefig(save_file)
     plt.show()

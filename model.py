@@ -92,6 +92,10 @@ class EnsembleMachine(object):
         return self
 
     def update(self, X, y, models_new, Z_new, batch_optimizer=None, lambda_=1.):
+        assert X.shape[0] == y.shape[0]
+        assert len(models_new) == Z_new.shape[0]
+
+
         nb_examples = X.shape[0]
         if batch_optimizer is None:
             batch_optimizer = easy.BatchOptimizer(batch_size=X.shape[0],
@@ -195,8 +199,9 @@ if __name__ == "__main__":
     y_dim = 4
     n_classes = y_dim
     X, y = make_classification(100, n_classes=y_dim, n_informative=10)
-    X = X.astype(theano.config.floatX)
     X = StandardScaler().fit_transform(X)
+    X = X.astype(theano.config.floatX)
+    y = y.astype('int32')
 
     models = [
         ('rf_1', RandomForestClassifier(n_estimators=10, max_depth=5)),
@@ -223,11 +228,14 @@ if __name__ == "__main__":
                          dist_y=mds.euclidian_dist,
                          batch_optimizer=batch_optimizer)
     es.fit(Y)
-    #plot_model_embeddings(models, es.Z.get_value())
+    plot_model_embeddings(models, es.Z.get_value(), save_file="before.png")
 
 
     x_in = layers.InputLayer(shape=(None, X.shape[1]))
-    h = layers.DenseLayer(x_in, num_units=100,
+    h = layers.DenseLayer(x_in, num_units=200,
+                          W=init.GlorotNormal(),
+                          nonlinearity=nonlinearities.rectify)
+    h = layers.DenseLayer(x_in, num_units=200,
                           W=init.GlorotNormal(),
                           nonlinearity=nonlinearities.rectify)
     z_out = layers.DenseLayer(h, num_units=y_dim,
@@ -237,7 +245,7 @@ if __name__ == "__main__":
                              [z_out])
     models_new = [model]
     Z_new = [
-        [4, -3]
+        [6, -1]
     ]
     Z_new = np.array(Z_new, dtype=theano.config.floatX)
 
@@ -252,14 +260,14 @@ if __name__ == "__main__":
                 print("loss :", es.get_loss(X, y))
     batch_optimizer = MyBatchOptimizer(verbose=1,
                                        max_nb_epochs=100,
-                                       optimization_procedure=(updates.adadelta, {"learning_rate": 1.}))
+                                       optimization_procedure=(updates.nesterov_momentum, {"learning_rate": 0.001, "momentum": 0.8}))
     es.update(X, y, models_new, Z_new,
               batch_optimizer=batch_optimizer,
-              lambda_=0.5)
+              lambda_=0.1)
     models_updated = models + [("new_%d" % (i,), es) for i, m in enumerate(models_new)]
     Y = build_Y(X, models_updated, n_classes)
     Y = Y.astype(theano.config.floatX)
     es = EnsembleMachine(n_components=2,
                          dist_y=mds.euclidian_dist)
     es.fit(Y)
-    plot_model_embeddings(models_updated, es.Z.get_value())
+    plot_model_embeddings(models_updated, es.Z.get_value(), save_file="after.png")
