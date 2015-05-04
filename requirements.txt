@@ -1,0 +1,3 @@
+matplotlib
+scikit-learn
+git+https://github.com/mehdidc/Lasagne
