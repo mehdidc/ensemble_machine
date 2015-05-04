@@ -6,7 +6,8 @@ def MDS_loss(dist_X, dist_Y):
 
 
 def euclidian_dist(X):
-    return T.dot(X, X.T)
+    s = (X.dimshuffle(0, 1, 'x') - X.dimshuffle('x', 1, 0)) ** 2
+    return (s.sum(axis=1))
 
 
 def hamming_dist(X):
