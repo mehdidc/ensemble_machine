@@ -186,15 +186,24 @@ def build_Y(X, models, n_classes):
     return Y
 
 if __name__ == "__main__":
+    from lightexperiments.light import Light
+
+    light = Light()
     from sklearn.ensemble import (RandomForestClassifier, AdaBoostClassifier,
                                   GradientBoostingClassifier)
-    from sklearn.tree import DecisionTreeClassifier
     from sklearn.linear_model import LogisticRegression
     from sklearn.svm import SVC
     from sklearn.datasets import make_classification
     from sklearn.preprocessing import StandardScaler
 #   import matplotlib.pyplot as plt
     from plotting import plot_model_embeddings
+
+    light.launch()
+
+    light.initials()
+    light.file_snapshot()
+    light.tag("ensemble_model_example")
+
     np.random.seed(0)
     y_dim = 4
     n_classes = y_dim
@@ -255,9 +264,17 @@ if __name__ == "__main__":
                 if epoch == self.max_nb_epochs - 1:
                     print(es.get_dist_y(X))
                     print(es.get_dist_z())
-                print("loss ensemble machine : ", es.get_loss_ensemble_machine(X))
-                print("loss accuracy : ", es.get_loss_accuracy(X, y))
-                print("loss :", es.get_loss(X, y))
+
+                loss_ensemble_machine = es.get_loss_ensemble_machine(X)
+                loss_accuracy = es.get_loss_accuracy(X, y)
+                loss = es.get_loss(X, y)
+                light.append("loss_ensemble_machine", loss_ensemble_machine)
+                light.append("loss_accuracy", loss_accuracy)
+                light.append("loss", loss)
+
+                print("loss ensemble machine : ", loss_ensemble_machine)
+                print("loss accuracy : ", loss_accuracy)
+                print("loss :", loss)
     batch_optimizer = MyBatchOptimizer(verbose=1,
                                        max_nb_epochs=100,
                                        optimization_procedure=(updates.nesterov_momentum, {"learning_rate": 0.001, "momentum": 0.8}))
@@ -271,3 +288,6 @@ if __name__ == "__main__":
                          dist_y=mds.euclidian_dist)
     es.fit(Y)
     plot_model_embeddings(models_updated, es.Z.get_value(), save_file="after.png")
+
+    light.endings()
+    light.store_experiment()
