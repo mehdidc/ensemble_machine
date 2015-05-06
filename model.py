@@ -75,9 +75,11 @@ class EnsembleMachine(object):
 
         mds_ = MDS(n_components=2, dissimilarity='precomputed')
         if self.dist_y == mds.hamming_dist:
-            dis = (Y[:, :, np.newaxis] != Y.T[np.newaxis, :, :]).sum(axis=1) # hamming
+            dis = (Y[:, :, np.newaxis] !=
+                   Y.T[np.newaxis, :, :]).sum(axis=1)
         elif self.dist_y == mds.euclidian_dist:
-            dis =  np.sqrt(((Y[:, :, np.newaxis] - Y.T[np.newaxis, :, :])**2).sum(axis=1))
+            dis = np.sqrt(((Y[:, :, np.newaxis] -
+                            Y.T[np.newaxis, :, :])**2).sum(axis=1))
         Z = mds_.fit_transform(dis)
         self.Y = theano.shared(Y, borrow=True)
         self.Z = theano.shared(Z, borrow=True)
@@ -147,9 +149,11 @@ class EnsembleMachine(object):
         # Z_new (nb_new_models, nb_components)
         # models_new : list of nb_new_models LightweightModel
         outputs = []
+        pred = []
         probas = []
         for model in models_new:
             output, = model.get_output(X_batch)
+            pred.append(output.argmax(axis=1))
             probas.append(output)
             output = model_repr(output)
             output = output.dimshuffle('x', 0)
@@ -158,18 +162,21 @@ class EnsembleMachine(object):
         # (nb_new_models, nb_examples)
         Y_new = T.concatenate(outputs, axis=0)
 
-        if inverser == False:
+        if inverser is False:
             loss_ensemble_machine = ensemble_machine_model_loss(Y_new, Z_new,
                                                                 self.Y, self.Z,
-                                                                self.dist_y, self.dist_z)
+                                                                self.dist_y,
+                                                                self.dist_z)
         else:
             assert self.inverser_ is not None
             Y_wanted = self.inverser_.inverse_transform(Z_new)
-            loss_ensemble_machine = ensemble_machine_model_loss_given_y(Y_new, Y_wanted)
+            loss_ensemble_machine = ensemble_machine_model_loss_given_y(Y_new,
+                                                                        Y_wanted)
 
         loss_accuracy = 0.
         for pr in probas:
-            loss_accuracy += -T.mean(T.log(pr)[T.arange(y_batch.shape[0]), y_batch])
+            loss_accuracy += -T.mean(T.log(pr)[T.arange(y_batch.shape[0]),
+                                               y_batch])
 
         loss = lambda_ * loss_accuracy + (1 - lambda_) * loss_ensemble_machine
         all_params = list(set(param
@@ -183,7 +190,7 @@ class EnsembleMachine(object):
         y = theano.shared(y, borrow=True)
         givens = {
             X_batch: X[batch_slice],
-            y_batch : y[batch_slice]
+            y_batch: y[batch_slice]
         }
         iter_train = theano.function(
             [batch_index], loss,
@@ -193,7 +200,7 @@ class EnsembleMachine(object):
 
         for i, model in enumerate(models_new):
             pr = probas[i]
-            predict = theano.function([X_batch], outputs[i][0, :])
+            predict = theano.function([X_batch], pred[i])
             predict_proba = theano.function([X_batch], pr)
             self.__dict__["predict_%d" % (i,)] = predict
             self.__dict__["predict_proba_%d" % (i,)] = predict_proba
@@ -201,8 +208,10 @@ class EnsembleMachine(object):
         self.predict_proba = self.predict_proba_0
 
         self.get_loss = theano.function([X_batch, y_batch], loss)
-        self.get_loss_ensemble_machine = theano.function([X_batch], loss_ensemble_machine)
-        self.get_loss_accuracy = theano.function([X_batch, y_batch], loss_accuracy)
+        self.get_loss_ensemble_machine = theano.function([X_batch],
+                                                         loss_ensemble_machine)
+        self.get_loss_accuracy = theano.function([X_batch, y_batch],
+                                                 loss_accuracy)
 
         y = T.concatenate([self.Y, Y_new], axis=0)
         dist_y = self.dist_y(y)
@@ -234,7 +243,7 @@ if __name__ == "__main__":
     light = Light()
     from sklearn.ensemble import (RandomForestClassifier, AdaBoostClassifier,
                                   GradientBoostingClassifier)
-    from sklearn.linear_model import LogisticRegression
+#    from sklearn.linear_model import LogisticRegression
     from sklearn.svm import SVC
     from sklearn.datasets import make_classification
     from sklearn.preprocessing import StandardScaler
@@ -247,30 +256,28 @@ if __name__ == "__main__":
     light.file_snapshot()
     light.tag("ensemble_model_example")
 
-    seed = 0
+    seed = 1
     np.random.seed(seed)
     light.set_seed(seed)
 
-    y_dim = 4
+    y_dim = 10
     n_classes = y_dim
-    X, y = make_classification(100, n_classes=y_dim, n_informative=10)
+    params = dict(n_classes=y_dim, n_informative=10)
+    X, y = make_classification(200, **params)
     X = StandardScaler().fit_transform(X)
     X = X.astype(theano.config.floatX)
     y = y.astype('int32')
 
     models = [
-        ('rf_1', RandomForestClassifier(n_estimators=10, max_depth=5)),
-        ('rf_2', RandomForestClassifier(n_estimators=50, max_depth=2)),
-        ('rf_3', RandomForestClassifier(n_estimators=100, max_depth=5)),
+        ('rf_10_5', RandomForestClassifier(n_estimators=50, max_depth=5)),
+        ('rf_10_5', RandomForestClassifier(n_estimators=80, max_depth=10)),
+        ('rf_10_5', RandomForestClassifier(n_estimators=80, max_depth=3)),
         ('ada_1', AdaBoostClassifier(n_estimators=10)),
-        ('ada_2', AdaBoostClassifier(n_estimators=12)),
-        ('logreg', LogisticRegression()),
         ('svm', SVC(probability=True)),
-        ('gb_1', GradientBoostingClassifier(max_depth=3)),
-        ('gb_2', GradientBoostingClassifier(max_depth=8)),
+#       ('gb_1', GradientBoostingClassifier(max_depth=3)),
+#       ('gb_2', GradientBoostingClassifier(max_depth=8)),
     ]
-
-    for name, model in models:
+    for _, model in models:
         model.fit(X, y)
     Y = build_Y(X, models, n_classes)
     Y = Y.astype(theano.config.floatX)
@@ -283,6 +290,7 @@ if __name__ == "__main__":
                          dist_y=mds.euclidian_dist,
                          batch_optimizer=batch_optimizer)
     es.fit_with_pca(Y)
+#   print(es.inverser_.explained_variance_ratio_)
     plot_model_embeddings(models, es.Z.get_value(), save_file="before.png")
 
     x_in = layers.InputLayer(shape=(None, X.shape[1]))
@@ -297,15 +305,20 @@ if __name__ == "__main__":
                               nonlinearity=nonlinearities.softmax)
     model = LightweightModel([x_in],
                              [z_out])
-    models_new = [model]
+    models_new = [
+        model
+    ]
     Z_new = [
         [-3, 1.96]
     ]
     Z_new = np.array(Z_new, dtype=theano.config.floatX)
 
     class MyBatchOptimizer(easy.BatchOptimizer):
-        def iter_update(self, epoch, nb_batches, iter_update_batch):
-                super(MyBatchOptimizer, self).iter_update(epoch, nb_batches, iter_update_batch)
+        def iter_update(self, epoch, nb_batches,
+                        iter_update_batch):
+                super(MyBatchOptimizer, self).iter_update(epoch,
+                                                          nb_batches,
+                                                          iter_update_batch)
                 if epoch == self.max_nb_epochs - 1:
                     print(es.get_dist_y(X))
                     print(es.get_dist_z())
@@ -320,20 +333,30 @@ if __name__ == "__main__":
                 print("loss ensemble machine : ", loss_ensemble_machine)
                 print("loss accuracy : ", loss_accuracy)
                 print("loss :", loss)
+
+    procedure = (updates.nesterov_momentum,
+                 {"learning_rate": 0.001, "momentum": 0.8})
     batch_optimizer = MyBatchOptimizer(verbose=1,
                                        max_nb_epochs=100,
-                                       optimization_procedure=(updates.nesterov_momentum, {"learning_rate": 0.001, "momentum": 0.8}))
+                                       batch_size=X.shape[0],
+                                       optimization_procedure=procedure)
+    print(X.shape)
+    print(y.shape)
+    print(len(models_new))
+    print(Z_new)
     es.update_with_gradient_descent(X, y, models_new, Z_new,
                                     batch_optimizer=batch_optimizer,
                                     lambda_=0.1,
                                     inverser=True)
-    models_updated = models + [("new_%d" % (i,), es) for i, m in enumerate(models_new)]
+    models_updated = models + [("new_%d" % (i,), es)
+                               for i, m in enumerate(models_new)]
     Y = build_Y(X, models_updated, n_classes)
     Y = Y.astype(theano.config.floatX)
-    es = EnsembleMachine(n_components=2)
 
+    es = EnsembleMachine(n_components=2)
     es.fit_with_pca(Y)
-    plot_model_embeddings(models_updated, es.Z.get_value(), save_file="after.png")
+    plot_model_embeddings(models_updated, es.Z.get_value(),
+                          save_file="after.png")
 
     light.endings()
     light.store_experiment()
