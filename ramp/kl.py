@@ -36,9 +36,9 @@ def logloss(pred, y):
 
 
 x_in = layers.InputLayer(shape=(None, X.shape[1]))
-h = layers.DenseLayer(x_in, num_units=10,
+h = layers.DenseLayer(x_in, num_units=2500,
                       W=init.GlorotUniform(),
-                      nonlinearity=nonlinearities.rectify)
+                      nonlinearity=nonlinearities.tanh)
 y_out = layers.DenseLayer(h, num_units=9,
                           W=init.GlorotUniform(),
                           nonlinearity=nonlinearities.softmax)
@@ -52,13 +52,14 @@ class MyBatchOptimizer(BatchOptimizer):
     def iter_update(self, epoch, nb_batches, iter_update_batch):
         res = super(MyBatchOptimizer, self).iter_update(epoch, nb_batches, iter_update_batch)
         res.update(OrderedDict({
-                "accuracy": (self.model.predict(X_train)==y_train).mean(),
+                "accuracy_train": (self.model.predict(X_train)==y_train).mean(),
                 "accuracy_test": (self.model.predict(X_test)==y_test).mean(),
                 "logloss_train": (logloss(self.model.predict_proba(X_train), y_train)),
                 "logloss_test": (logloss(self.model.predict_proba(X_test), y_test))
         }))
 
         if (epoch % self.report_each) == 0:
+            plt.subplot(1, 2, 1)
             plt.plot(get_stat("epoch", self.stats),
                     get_stat("logloss_train", batch_optimizer.stats),
                     c='blue', label='logloss_train')
@@ -74,24 +75,45 @@ class MyBatchOptimizer(BatchOptimizer):
                      c='black', label='logloss_delf_test'
                      )
             if len(self.stats)==1:
-                plt.legend()
+                plt.legend(loc='lower left')
+
+            plt.subplot(1, 2, 2)
+
+            plt.plot(get_stat("epoch", self.stats),
+                     get_stat("accuracy_train", self.stats),
+                     c='blue', label='accuracy_train'
+                     )
+            plt.plot(get_stat("epoch", self.stats),
+                     get_stat("accuracy_test", self.stats),
+                     c='green', label='accuracy_test'
+                     )
+            plt.plot(get_stat("epoch", self.stats),
+                    [(models_train[:, 0, :].argmax(axis=1)==y_train).mean()] * len(self.stats),
+                     c='red', label='accuracy_delf_train'
+                     )
+            plt.plot(get_stat("epoch", self.stats),
+                     [(models_test[:, 0, :].argmax(axis=1)==y_test).mean()] * len(self.stats),
+                     c='black', label='accuracy_delf_test'
+                     )
+            if len(self.stats)==1:
+                plt.legend(loc='lower left')
             plt.show(block=False)
             time.sleep(0.1)
             plt.pause(0.001)
         return res
 
-batch_optimizer = MyBatchOptimizer(max_nb_epochs=100,
-                                   optimization_procedure=(updates.adadelta, {"learning_rate" : 1}),
-                                   batch_size=200,
-                                   patience_nb_epochs=20,
-                                   patience_progression_rate_threshold=0.0001,
+batch_optimizer = MyBatchOptimizer(max_nb_epochs=500,
+                                   optimization_procedure=(updates.momentum, {"learning_rate" : 0.3, "momentum": 0.9}),
+                                   batch_size=100,
+#                                   patience_nb_epochs=20,
+#                                   patience_progression_rate_threshold=0.0001,
                                    report_each=5,
                                    verbose=1)
 
 def loss(pred, real, models):
-    lambda_ = 0.9
+    lambda_ = 0.
     #loss_kl = (models * T.log(pred.dimshuffle(0, 'x', 1))).mean(axis=(1, 2))
-    loss_kl = -T.sqrt(((models - pred.dimshuffle(0, 'x', 1))**2).mean(axis=(1, 2)))
+    loss_kl = (((models - pred.dimshuffle(0, 'x', 1))**2).mean(axis=(1, 2)))
     #loss_kl = models.sum()
     loss =  lambda_ * T.nnet.categorical_crossentropy(pred, real) + (1 - lambda_) * loss_kl
     return loss
