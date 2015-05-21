@@ -3,8 +3,10 @@ import theano
 import theano.tensor as T
 from lasagne import easy, updates, layers, init, nonlinearities
 import numpy as np
+
+from sklearn.preprocessing import StandardScaler
 from sklearn.manifold import MDS
-from sklearn.decomposition import PCA
+from sklearn.decomposition import KernelPCA, PCA, RandomizedPCA, TruncatedSVD
 
 
 from lasagne.easy import LightweightModel
@@ -29,11 +31,11 @@ def ensemble_machine_model_loss(y_new, z_new,
 
 
 def ensemble_machine_model_loss_given_y(y, wanted_y):
-    return (((y - wanted_y) ** 2).sum(axis=1)).mean()
+    return T.sqrt((((y - wanted_y) ** 2).sum(axis=1))).mean()
 
 
 def model_representation_by_increasing_mean(probas, context=T):
-    return probas * context.arange(probas.shape[1]).sum(axis=1)
+    return (probas * context.arange(probas.shape[1])).sum(axis=1)
 
 
 def model_representation_by_labels(probas, context=T):
@@ -42,6 +44,16 @@ def model_representation_by_labels(probas, context=T):
 
 def model_representation_by_probas(probas, context=T):
     return probas.flatten()
+
+
+#def euclidean(X):
+#    d = (X.reshape( (X.shape[0], X.shape[1], 1) ) -
+#         X.T.reshape( (1, X.shape[1], X.shape[0])  )) ** 2
+#    return np.sqrt(d.sum(axis=1))
+
+from sklearn.metrics.pairwise import euclidean_distances
+def euclidean(X):
+    return euclidean_distances(X)
 
 
 class EnsembleMachine(object):
@@ -65,22 +77,35 @@ class EnsembleMachine(object):
     def fit_with_pca(self, Y):
         assert (self.dist_y == mds.euclidian_dist and
                 self.dist_z == mds.euclidian_dist)
-        self.inverser_ = PCA(n_components=2)
+        self.inverser_ = KernelPCA(n_components=2, fit_inverse_transform=True,
+                                   kernel='linear')
+
         Z = self.inverser_.fit_transform(Y)
+
+        d_y = euclidean(Y)
+        d_z = euclidean(Z)
+        self.stress_ = (((d_y - d_z) ** 2).sum())
+
         self.Y = theano.shared(Y, borrow=True)
         self.Z = theano.shared(Z, borrow=True)
 
-    def fit_with_mds(self, Y):
+    def fit_with_mds(self, Y, **par):
         assert self.dist_z == mds.euclidian_dist
 
-        mds_ = MDS(n_components=2, dissimilarity='precomputed')
+        params = dict(n_components=2, n_init=10, verbose=1)
+        params.update(par)
         if self.dist_y == mds.hamming_dist:
-            dis = (Y[:, :, np.newaxis] !=
-                   Y.T[np.newaxis, :, :]).sum(axis=1)
+            mds_ = MDS(dissimilarity='precomputed', **params)
+            dis = ((Y[:, :, np.newaxis] !=
+                    Y.T[np.newaxis, :, :]).sum(axis=1))
+            d_y = dis
+            Z = mds_.fit_transform(dis)
         elif self.dist_y == mds.euclidian_dist:
-            dis = np.sqrt(((Y[:, :, np.newaxis] -
-                            Y.T[np.newaxis, :, :])**2).sum(axis=1))
-        Z = mds_.fit_transform(dis)
+            mds_ = MDS(dissimilarity='euclidean', **params)
+            d_y = euclidean(Y)
+            Z = mds_.fit_transform(Y)
+        d_z = euclidean(Z)
+        self.stress_ = (((d_y - d_z) ** 2).sum())
         self.Y = theano.shared(Y, borrow=True)
         self.Z = theano.shared(Z, borrow=True)
         return self
@@ -98,9 +123,10 @@ class EnsembleMachine(object):
         batch_index = T.iscalar('batch_index')
         batch_slice = easy.get_batch_slice(batch_index,
                                            self.batch_optimizer.batch_size)
+        Z_batch = self.Z[batch_slice]
 
         d_y = self.dist_y(Y_batch)
-        d_z = self.dist_z(self.Z[batch_slice])
+        d_z = self.dist_z(Z_batch)
 
         loss = mds.MDS_loss(d_y, d_z)
 
@@ -111,6 +137,7 @@ class EnsembleMachine(object):
 
         givens = {
             Y_batch: Y[batch_slice],
+            Z_batch: self.Z[batch_slice]
         }
         iter_train = theano.function(
             [batch_index], loss,
@@ -121,9 +148,11 @@ class EnsembleMachine(object):
                                          self.batch_optimizer.batch_size)
         self.batch_optimizer.optimize(nb_batches, iter_train)
 
-        get_stress = theano.function([], loss,
-                                     givens={Y_batch: Y, batch_index: 0})
-        self.stress_ = get_stress()
+
+        get_d_Y = theano.function([], d_y, givens={Y_batch: Y})
+        get_d_Z = theano.function([], d_z, givens={Z_batch: self.Z})
+
+        self.stress_ = ((get_d_Y() - get_d_Z()) ** 2).sum()
         self.Y = Y
         return self
 
@@ -172,11 +201,21 @@ class EnsembleMachine(object):
             Y_wanted = self.inverser_.inverse_transform(Z_new)
             loss_ensemble_machine = ensemble_machine_model_loss_given_y(Y_new,
                                                                         Y_wanted)
+        C = 1.
+        if model_repr == model_representation_by_probas:
+            if inverser is True:
+                y_dim = probas[0].shape[1]
+                C = 1. / y_dim
+                loss_ensemble_machine *= C # make it comparable with loss_accuracy
+            else:
+                C = 1. / self.Y.get_value().shape[0]
+                loss_ensemble_machine *= C # make it comparable with loss_accuracy
 
         loss_accuracy = 0.
         for pr in probas:
             loss_accuracy += -T.mean(T.log(pr)[T.arange(y_batch.shape[0]),
                                                y_batch])
+
 
         loss = lambda_ * loss_accuracy + (1 - lambda_) * loss_ensemble_machine
         all_params = list(set(param
@@ -269,11 +308,11 @@ if __name__ == "__main__":
     y = y.astype('int32')
 
     models = [
-        ('rf_10_5', RandomForestClassifier(n_estimators=50, max_depth=5)),
-        ('rf_10_5', RandomForestClassifier(n_estimators=80, max_depth=10)),
-        ('rf_10_5', RandomForestClassifier(n_estimators=80, max_depth=3)),
+        ('rf_1', RandomForestClassifier(n_estimators=50, max_depth=5)),
+        ('rf_2', RandomForestClassifier(n_estimators=80, max_depth=10)),
+        ('rf_3', RandomForestClassifier(n_estimators=80, max_depth=3)),
         ('ada_1', AdaBoostClassifier(n_estimators=10)),
-        ('svm', SVC(probability=True)),
+        ('svm_1', SVC(probability=True)),
 #       ('gb_1', GradientBoostingClassifier(max_depth=3)),
 #       ('gb_2', GradientBoostingClassifier(max_depth=8)),
     ]
@@ -281,7 +320,7 @@ if __name__ == "__main__":
         model.fit(X, y)
     Y = build_Y(X, models, n_classes)
     Y = Y.astype(theano.config.floatX)
-    opti = (updates.sgd, {"learning_rate": 0.01})
+    opti = (updates.sgd, {"learning_rate": 0.1})
     batch_optimizer = easy.BatchOptimizer(verbose=1,
                                           batch_size=Y.shape[0],
                                           max_nb_epochs=10,
@@ -289,9 +328,10 @@ if __name__ == "__main__":
     es = EnsembleMachine(n_components=2,
                          dist_y=mds.euclidian_dist,
                          batch_optimizer=batch_optimizer)
-    es.fit_with_pca(Y)
-#   print(es.inverser_.explained_variance_ratio_)
+    es.fit_with_mds(Y)
+
     plot_model_embeddings(models, es.Z.get_value(), save_file="before.png")
+
 
     x_in = layers.InputLayer(shape=(None, X.shape[1]))
     h = layers.DenseLayer(x_in, num_units=200,
@@ -309,7 +349,7 @@ if __name__ == "__main__":
         model
     ]
     Z_new = [
-        [-3, 1.96]
+        es.Z.get_value()[0].tolist()
     ]
     Z_new = np.array(Z_new, dtype=theano.config.floatX)
 
@@ -347,16 +387,16 @@ if __name__ == "__main__":
     es.update_with_gradient_descent(X, y, models_new, Z_new,
                                     batch_optimizer=batch_optimizer,
                                     lambda_=0.1,
-                                    inverser=True)
+                                    inverser=False)
     models_updated = models + [("new_%d" % (i,), es)
                                for i, m in enumerate(models_new)]
-    Y = build_Y(X, models_updated, n_classes)
-    Y = Y.astype(theano.config.floatX)
 
+    Y = build_Y(X, models_updated, n_classes)
     es = EnsembleMachine(n_components=2)
-    es.fit_with_pca(Y)
+    es.fit_with_mds(Y)
     plot_model_embeddings(models_updated, es.Z.get_value(),
                           save_file="after.png")
 
     light.endings()
     light.store_experiment()
+    light.close()

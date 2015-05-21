@@ -16,6 +16,9 @@ def plot_model_embeddings(models, Z, title="untitled", save_file=None):
     kinds = list(set(models_kinds))
     mapping = {k: i + 1 for i, k in enumerate(kinds)}
     colors = [mapping[k] for k in models_kinds]
+    print(x)
+    print(y)
+    print(colors)
     fig = plt.figure()
     ax = fig.add_subplot(111)
     ax.scatter(x, y, s=radii,
