@@ -3,10 +3,12 @@ from load import (load, get_pred, get_scores, split_data,
 import theano
 import numpy as np
 
+import os
 
+ramp_dir = os.path.join(os.getenv("DATA_PATH"), "ramp")
 ramp = 4
 num_prediction = None
-obj = load("result_ramp%d.dat" % (ramp,))
+obj = load(os.path.join(ramp_dir, "result_ramp%d.dat" % (ramp,)))
 
 class FeatureExtractor(object):
 
@@ -23,7 +25,7 @@ class FeatureExtractor(object):
 
 
 pred = get_pred(obj, num_prediction=num_prediction)
-scores_csv, scores, contrib = get_scores(obj, "scores_ramp%d.csv" % (ramp,))
+scores_csv, scores, contrib = get_scores(obj, os.path.join(ramp_dir, "scores_ramp%d.csv" % (ramp,)))
 num_folds = 1
 X_all, y_all, skf, _, _ = get_all_data(num_folds, FeatureExtractor=FeatureExtractor)
 
