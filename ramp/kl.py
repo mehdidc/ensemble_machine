@@ -5,12 +5,31 @@ import numpy as np
 
 
 ramp = 4
+num_prediction = None
 obj = load("result_ramp%d.dat" % (ramp,))
-pred = get_pred(obj)
+
+class FeatureExtractor(object):
+
+    def __init__(self):
+        pass
+
+    def fit(self, X_dict, y):
+        pass
+
+    def transform(self, X_dict):
+        cols = X_dict[0].keys()
+        x =  np.array([[instance[col] for col in cols] for instance in X_dict])
+        return np.log(2. + x)
+
+
+pred = get_pred(obj, num_prediction=num_prediction)
 scores_csv, scores, contrib = get_scores(obj, "scores_ramp%d.csv" % (ramp,))
 num_folds = 1
-X_all, y_all, skf, _, _ = get_all_data(num_folds)
-X, y = get_test_data(X_all, y_all, skf)
+X_all, y_all, skf, _, _ = get_all_data(num_folds, FeatureExtractor=FeatureExtractor)
+
+
+
+X, y = get_test_data(X_all, y_all, skf, num_prediction=num_prediction)
 models = get_models(pred, obj["y_dim"])
 
 
@@ -28,7 +47,6 @@ from lasagne.generative.neural_net import NeuralNet
 from lasagne.easy import BatchOptimizer, LightweightModel, get_stat
 import theano.tensor as T
 from collections import OrderedDict
-from matplotlib import animation
 def logloss(pred, y):
     probs = pred[np.arange(pred.shape[0]), y]
     probs = np.maximum(np.minimum(probs, 1 - 1e-15), 1e-15)
@@ -36,9 +54,9 @@ def logloss(pred, y):
 
 
 x_in = layers.InputLayer(shape=(None, X.shape[1]))
-h = layers.DenseLayer(x_in, num_units=2500,
-                      W=init.GlorotUniform(),
-                      nonlinearity=nonlinearities.tanh)
+h = layers.DenseLayer(x_in, num_units=1000,
+                      W=init.GlorotNormal(),
+                      nonlinearity=nonlinearities.rectify)
 y_out = layers.DenseLayer(h, num_units=9,
                           W=init.GlorotUniform(),
                           nonlinearity=nonlinearities.softmax)
@@ -102,9 +120,9 @@ class MyBatchOptimizer(BatchOptimizer):
             plt.pause(0.001)
         return res
 
-batch_optimizer = MyBatchOptimizer(max_nb_epochs=500,
-                                   optimization_procedure=(updates.momentum, {"learning_rate" : 0.3, "momentum": 0.9}),
-                                   batch_size=100,
+batch_optimizer = MyBatchOptimizer(max_nb_epochs=1000,
+                                   optimization_procedure=(updates.rmsprop, {"learning_rate" : 0.001}),
+                                   batch_size=128,
 #                                   patience_nb_epochs=20,
 #                                   patience_progression_rate_threshold=0.0001,
                                    report_each=5,
