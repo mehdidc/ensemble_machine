@@ -5,9 +5,23 @@ import numpy as np
 
 import os
 
+from lightexperiments.light import Light
+
+light = Light()
+light.launch()
+light.initials()
+light.file_snapshot()
+
+seed = 151231
+np.random.seed(seed)
+light.set_seed(seed)
+
+light.tag("mimic_probabilities")
+
+
 ramp_dir = os.path.join(os.getenv("DATA_PATH"), "ramp")
 ramp = 4
-num_prediction = None
+num_prediction = 100
 obj = load(os.path.join(ramp_dir, "result_ramp%d.dat" % (ramp,)))
 
 class FeatureExtractor(object):
@@ -35,7 +49,7 @@ X, y = get_test_data(X_all, y_all, skf, num_prediction=num_prediction)
 models = get_models(pred, obj["y_dim"])
 
 
-test_size = 0.25
+test_size = 0.1
 to = int(X.shape[0]*(1-test_size))
 X_train, y_train = X[0:to], y[0:to]
 X_test, y_test = X[to:], y[to:]
@@ -54,10 +68,11 @@ def logloss(pred, y):
     probs = np.maximum(np.minimum(probs, 1 - 1e-15), 1e-15)
     return -np.mean(np.log(probs))
 
-
+num_units = 1000
+light.set("num_units", num_units)
 x_in = layers.InputLayer(shape=(None, X.shape[1]))
-h = layers.DenseLayer(x_in, num_units=1000,
-                      W=init.GlorotNormal(),
+h = layers.DenseLayer(x_in, num_units=num_units,
+                      W=init.GlorotUniform(),
                       nonlinearity=nonlinearities.rectify)
 y_out = layers.DenseLayer(h, num_units=9,
                           W=init.GlorotUniform(),
@@ -77,6 +92,9 @@ class MyBatchOptimizer(BatchOptimizer):
                 "logloss_train": (logloss(self.model.predict_proba(X_train), y_train)),
                 "logloss_test": (logloss(self.model.predict_proba(X_test), y_test))
         }))
+        
+        for k, v in res.items():
+            light.append(k, v)
 
         if (epoch % self.report_each) == 0:
             plt.subplot(1, 2, 1)
@@ -95,7 +113,7 @@ class MyBatchOptimizer(BatchOptimizer):
                      c='black', label='logloss_delf_test'
                      )
             if len(self.stats)==1:
-                plt.legend(loc='lower left')
+                plt.legend(loc='upper right')
 
             plt.subplot(1, 2, 2)
 
@@ -122,11 +140,11 @@ class MyBatchOptimizer(BatchOptimizer):
             plt.pause(0.001)
         return res
 
-batch_optimizer = MyBatchOptimizer(max_nb_epochs=1000,
-                                   optimization_procedure=(updates.rmsprop, {"learning_rate" : 0.001}),
-                                   batch_size=128,
-#                                   patience_nb_epochs=20,
-#                                   patience_progression_rate_threshold=0.0001,
+batch_optimizer = MyBatchOptimizer(max_nb_epochs=2000,
+        optimization_procedure=(updates.sgd, {"learning_rate" : 0.001}),
+                                   batch_size=10,
+                                   patience_nb_epochs=20,
+                                   patience_progression_rate_threshold=1e-5,
                                    report_each=5,
                                    verbose=1)
 
@@ -141,8 +159,8 @@ def loss(pred, real, models):
 model = NeuralNet(nnet_x_to_y, batch_optimizer=batch_optimizer, loss_function=loss)
 
 import matplotlib.pyplot as plt
-#plt.ion()
-#fig = plt.figure()
-#ax = fig.add_subplot(111)
 model.fit(X_train, y_train, optional={"models":(models_train)})
+light.endings()
+light.store_experiment()
+light.close()
 plt.show()
