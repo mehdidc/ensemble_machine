@@ -118,7 +118,7 @@ class MyBatchOptimizer(BatchOptimizer):
             if len(self.stats)==1:
                 plt.legend(loc='lower left')
             plt.show(block=False)
-            time.sleep(0.1)
+            time.sleep(1.1)
             plt.pause(0.001)
         return res
 
@@ -135,7 +135,7 @@ def loss(pred, real, models):
     #loss_kl = (models * T.log(pred.dimshuffle(0, 'x', 1))).mean(axis=(1, 2))
     loss_kl = (((models - pred.dimshuffle(0, 'x', 1))**2).mean(axis=(1, 2)))
     #loss_kl = models.sum()
-    loss =  lambda_ * T.nnet.categorical_crossentropy(pred, real) + (1 - lambda_) * loss_kl
+    loss =  lambda_ * -T.nnet.categorical_crossentropy(pred, real) + (1 - lambda_) * loss_kl
     return loss
 
 model = NeuralNet(nnet_x_to_y, batch_optimizer=batch_optimizer, loss_function=loss)
