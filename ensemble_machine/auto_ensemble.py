@@ -10,25 +10,42 @@ from sklearn.cross_validation import StratifiedShuffleSplit
 import theano.tensor as T
 import pandas
 
+from lightexperiments.light import Light
+
 def loss_function(pred, real, **params):
 
     lambda_ = params.get("lambda")
     hidden  = params.get("hidden")
     pre_outputs = params.get("pre_outputs")
+    outputs = params.get("outputs")
     #h_all = T.concatenate([T.shape_padleft(h, 1) for h in hidden], axis=0)
-    o_all = T.concatenate([T.shape_padleft(o, 1) for o in pre_outputs], axis=0)
+    o_all = T.concatenate([T.shape_padleft(o.get_output(params["X_batch"]), 1) for o in outputs], axis=0)
+    diff = -T.var(o_all, axis=0).mean(axis=1)
+    return T.nnet.categorical_crossentropy(pred, real) + lambda_ * diff
 
-    diff = -lambda_ * T.var(o_all, axis=0).sum()
-    return -np.log(pred)[np.arange(y.shape[0]), y].mean() + lambda_ * diff
+def logloss(pred, y):
+    probs = pred[np.arange(pred.shape[0]), y]
+    probs = np.maximum(np.minimum(probs, 1 - 1e-15), 1e-15)
+    return -np.mean(np.log(probs))
 
 
-    return T.nnet.categorical_crossentropy(pred, real)
-
-
-def logloss(y_pred, y):
-    return -np.log(y_pred)[np.arange(y.shape[0]), y].mean()
 
 if __name__ == "__main__":
+
+    light = Light()
+
+    light.launch() # init the DB
+    light.initials() # save the date and init the timer
+
+    light.file_snapshot() # save the content of the python file running
+    seed = 134223
+    np.random.seed(seed)
+    light.set_seed(seed) # save the content of the seed
+
+    light.tag("auto_ensemble") # for tagging your experiments
+    lambda_ = 0 
+    light.set("lambda", lambda_)
+
 
     X = pandas.read_csv("train.csv")
     y = X["target"]
@@ -40,11 +57,13 @@ if __name__ == "__main__":
     X = StandardScaler().fit_transform(X)
 
     X = X.astype(np.float32)
+    y = y.astype(np.int32)
 
     X, y = shuffle(X, y)
 
 
     class MyBatchOptimizer(BatchOptimizer):
+
 
         def iter_update(self, epoch, nb_batches, iter_update_batch):
             status = super(MyBatchOptimizer, self).iter_update(epoch, nb_batches, iter_update_batch)
@@ -52,24 +71,28 @@ if __name__ == "__main__":
             status["accuracy_train"] = (self.model.predict(self.X_train)==self.y_train).mean()
             status["logloss_valid"] = logloss(self.model.predict_proba(self.X_valid), self.y_valid)
             status["accuracy_valid"] = (self.model.predict(self.X_valid)==self.y_valid).mean()
+
+            for k, v in status.items():
+                light.append("{0}_run_{1}".format(k, self.nb), float(v))
+
             return status
 
-    def build_model(nb=40):
+    def build_model(nb=5):
         x_in = layers.InputLayer(shape=(None, X.shape[1]))
         params =  dict()
         hidden = []
         pre_outputs = []
         outputs = []
+        collab = []
         for i in range(nb):
-            h = layers.DenseLayer(x_in, num_units=30,
+            h = layers.DenseLayer(x_in, num_units=100,
                                   W=init.GlorotUniform(),
                                   nonlinearity=nonlinearities.rectify)
-
             hidden.append(h)
-
             y_pre_i = layers.DenseLayer(h, num_units=len(set(y)),
                                         W=init.GlorotUniform(),
                                         nonlinearity=nonlinearities.linear)
+
             pre_outputs.append(y_pre_i)
             y_i = layers.NonlinearityLayer(y_pre_i,
                                            nonlinearity=nonlinearities.softmax)
@@ -86,11 +109,19 @@ if __name__ == "__main__":
 
     scores = []
     skf = StratifiedShuffleSplit(y, n_iter=5, test_size=0.1)
+    i = 0
     for train_index, test_index in skf:
         model, params = build_model()
-        params["lambda"] = 0
-        optimizer = MyBatchOptimizer(verbose=1, batch_size=128, max_nb_epochs=50)
-        nnet = NeuralNet(model, optimizer, loss_params=params)
+        params["lambda"] = lambda_
+        optimizer = MyBatchOptimizer(verbose=2, 
+                                     batch_size=128, 
+                                     max_nb_epochs=200, 
+                                     patience_nb_epochs=5,
+                                     patience_stat="logloss_valid",
+                                     whole_dataset_in_device=True)
+        optimizer.nb = i
+        nnet = NeuralNet(model, optimizer, loss_params=params,
+                         loss_function=loss_function)
         optimizer.X_train = X[train_index]
         optimizer.y_train = y[train_index]
         optimizer.X_valid = X[test_index]
@@ -98,4 +129,11 @@ if __name__ == "__main__":
         nnet.fit(X[train_index], y[train_index])
 
         scores.append(logloss(nnet.predict_proba(X[test_index]), y[test_index]))
+        i += 1
     print(scores)
+    print(np.mean(scores))
+    print(np.std(scores))
+    
+    light.endings() # save the duration
+    light.store_experiment() # update the DB
+    light.close() # close the DB
