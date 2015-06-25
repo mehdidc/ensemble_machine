@@ -21,7 +21,13 @@ def loss_function(pred, real, **params):
     #h_all = T.concatenate([T.shape_padleft(h, 1) for h in hidden], axis=0)
     o_all = T.concatenate([T.shape_padleft(o.get_output(params["X_batch"]), 1) for o in outputs], axis=0)
     diff = -T.var(o_all, axis=0).mean(axis=1)
+
+    #loss = 0
+    #for o in outputs:
+    #    loss += T.nnet.categorical_crossentropy(o.get_output(params["X_batch"]), real)
+    #loss += lambda_ * diff
     return T.nnet.categorical_crossentropy(pred, real) + lambda_ * diff
+    #return loss
 
 def logloss(pred, y):
     probs = pred[np.arange(pred.shape[0]), y]
@@ -43,7 +49,7 @@ if __name__ == "__main__":
     light.set_seed(seed) # save the content of the seed
 
     light.tag("auto_ensemble") # for tagging your experiments
-    lambda_ = 0 
+    lambda_ = 10.
     light.set("lambda", lambda_)
 
 
@@ -77,7 +83,7 @@ if __name__ == "__main__":
 
             return status
 
-    def build_model(nb=5):
+    def build_model(nb=10):
         x_in = layers.InputLayer(shape=(None, X.shape[1]))
         params =  dict()
         hidden = []
@@ -85,7 +91,7 @@ if __name__ == "__main__":
         outputs = []
         collab = []
         for i in range(nb):
-            h = layers.DenseLayer(x_in, num_units=100,
+            h = layers.DenseLayer(x_in, num_units=300,
                                   W=init.GlorotUniform(),
                                   nonlinearity=nonlinearities.rectify)
             hidden.append(h)
