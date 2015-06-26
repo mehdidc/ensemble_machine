@@ -173,6 +173,8 @@ def report_learning_curves(experiment, report_dir="report"):
                 plt.plot(iterations, values_train, label="train", c='b')
                 plt.plot(iterations, values_valid, label="valid", c='g')
                 plt.title("{0} {1} curves".format(model_name, name))
+                plt.xlabel("epochs")
+                plt.ylabel(name)
                 plt.legend()
                 filename = "{0}_{1}_{2}.png".format(model_name, config_name, name)
                 plt.savefig(os.path.join(report_dir, filename))
@@ -186,7 +188,7 @@ def report_learning_curves(experiment, report_dir="report"):
     stats = experiment["models_stats"]
     architectures = stats.values()[0].keys()
 
-    for name in ("logloss_valid", "accuracy_valid"):
+    for name in ("logloss_train","accuracy_train", "logloss_valid", "accuracy_valid"):
         for a in architectures:
             plt.clf()
             for model_name, config in stats.items():
@@ -197,6 +199,8 @@ def report_learning_curves(experiment, report_dir="report"):
                         continue
                     iterations = range(len(L))
                     plt.plot(iterations, L, label=model_name)
+            plt.xlabel("epochs")
+            plt.ylabel(name)
             plt.legend()
             filename = "all-{0}-{1}.png".format(a, name)
             plt.savefig(os.path.join(report_dir, filename))
@@ -239,19 +243,24 @@ def report_learning_curves(experiment, report_dir="report"):
 
 if __name__ == "__main__":
     from datasets import datasets
-
+    import os
     light = Light()
     light.launch()
     
-    #r = list(light.db.find({"tags": "auto_ensemble_experiment"}))
-    #report_learning_curves(r[-1])
-    #light.close()
-    #sys.exit(0)
+    r = list(light.db.find({"tags": "auto_ensemble_experiment"}))
+    for i in range(len(r)):
+        try:
+            os.mkdir("reports/report_{0}".format(i + 1))
+        except Exception:
+            pass
+        report_learning_curves(r[i], "reports/report_{0}".format(i + 1))
+    light.close()
+    sys.exit(0)
 
     light.initials()
     light.tag("auto_ensemble_experiment")
 
-    ds = "otto"
+    ds = "covertype"
     light.set("dataset", ds)
     X, y = datasets.get(ds)()
     launch(X, y)

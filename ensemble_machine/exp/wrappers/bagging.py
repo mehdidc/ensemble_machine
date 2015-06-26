@@ -41,7 +41,7 @@ class Bagging(object):
 
             stat = {}
             o = Dummy()
-            o.predict = lambda X: probas_train.argmax(axis=1)
+            o.predict = lambda X: self.clf.classes_[probas_train.argmax(axis=1)]
             o.predict_proba = lambda X: probas_train / sum_weights
             for eval_function_name, eval_function in eval_functions.items():
                 val = eval_function(o, X, y)
@@ -49,7 +49,7 @@ class Bagging(object):
 
             if X_valid is not None and y_valid is not None:
                 o = Dummy()
-                o.predict = lambda X: probas_valid.argmax(axis=1)
+                o.predict = lambda X: self.clf.classes_[probas_valid.argmax(axis=1)]
                 o.predict_proba = lambda X: probas_valid / sum_weights
                 for eval_function_name, eval_function in eval_functions.items():
                     val = eval_function(o, X_valid, y_valid)

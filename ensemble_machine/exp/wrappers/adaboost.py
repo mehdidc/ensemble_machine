@@ -42,7 +42,7 @@ class AdaBoost(object):
             #y_train_prob_i = isoto.predict_proba(y_train_prob_i.astype('float32'))
             stat = {}
             o = Dummy()
-            o.predict = lambda X: np.array(y_train_prob_i.argmax(axis=1))
+            o.predict = lambda X: self.clf.classes_[np.array(y_train_prob_i.argmax(axis=1))]
             o.predict_proba = lambda X: np.array(y_train_prob_i)
             for eval_function_name, eval_function in eval_functions.items():
                 val = eval_function(o, X, y)
@@ -51,7 +51,7 @@ class AdaBoost(object):
             if y_valid_prob_i is not None:
                 #y_valid_prob_i = isoto.predict_proba(y_valid_prob_i.astype('float32'))
                 o = Dummy()
-                o.predict = lambda X: np.array(y_valid_prob_i.argmax(axis=1))
+                o.predict = lambda X: self.clf.classes_[np.array(y_valid_prob_i.argmax(axis=1))]
                 o.predict_proba = lambda X: np.array(y_valid_prob_i)
                 for eval_function_name, eval_function in eval_functions.items():
                     val = eval_function(o, X_valid, y_valid)
