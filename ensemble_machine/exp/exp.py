@@ -53,7 +53,11 @@ def launch(X, y, seed=100):
     )
     nb_models_per_ensemble = 10
     nb_models_per_ensemble_for_neural_net = 10
-    max_evaluations_hp = 30
+    max_evaluations_hp = 20 
+    big_neural_net = True 
+    bagging = True
+    adaboost = True
+    repulsive = True
     light.set("nb_models_per_ensemble", nb_models_per_ensemble)
     light.set("nb_models_per_ensemble_for_neural_net", nb_models_per_ensemble_for_neural_net)
     light.set("max_evaluations_hp", max_evaluations_hp)
@@ -62,7 +66,7 @@ def launch(X, y, seed=100):
     models_stats = OrderedDict()
 
     #1) find best neural net architecture
-    best_hp, _ = find_best_hp(NeuralNetWrapper,
+    best_hp, best_score = find_best_hp(NeuralNetWrapper,
                               (minimize_fn_with_hyperopt),
                               X_train,
                               X_valid,
@@ -70,73 +74,87 @@ def launch(X, y, seed=100):
                               y_valid,
                               max_evaluations=max_evaluations_hp)
     neural_net_hp[Best] = best_hp
+    neural_net_best_score = best_score
     light.set("neural_net_hp", neural_net_hp)
+    light.set("neural_net_best_score", neural_net_best_score)
     # prepare big_neural_net
-    big_neural_net_hp = dict()
-    for hp_name, hp_value in neural_net_hp.items():
-        big_neural_net_hp[hp_name] = hp_value.copy()
-        big_neural_net_hp[hp_name]["num_units"] = hp_value["num_units"] * nb_models_per_ensemble_for_neural_net
-    #2) try a Big neural net
-    big_neural_net_models = dict()
-    for name, hp in big_neural_net_hp.items():
-        nnet = NeuralNetWrapper(**hp)
-        nnet.fit(X_train_full, y_train_full,
-                 X_valid=X_test, y_valid=y_test,
-                 eval_functions=eval_functions)
-        big_neural_net_models[name] = nnet
-    models_stats["big_neural_net"] = {name:model.stats for name, model in big_neural_net_models.items()}
-
-    #3) try bagging with the best and baseline architecture
-    bagging_models = dict()
-    for name, hp in neural_net_hp.items():
-        bagging = Bagging(base_estimator=NeuralNetWrapper(**hp), 
-                          n_estimators=nb_models_per_ensemble)
-        bagging.fit(X_train_full, y_train_full, 
-                    X_valid=X_test, y_valid=y_test,
-                    eval_functions=eval_functions)
-        bagging_models[name] = bagging
-    models_stats["bagging"] = {name:model.stats for name, model in bagging_models.items()}
-    #4) try adaboost
-    adaboost_models = dict()
-    for name, hp in neural_net_hp.items():
-        adaboost = AdaBoost(base_estimator=NeuralNetWrapper(**hp),
-                            n_estimators=nb_models_per_ensemble)
-        adaboost.fit(X_train_full, y_train_full, 
+    if big_neural_net is True:
+        big_neural_net_hp = dict()
+        for hp_name, hp_value in neural_net_hp.items():
+            big_neural_net_hp[hp_name] = hp_value.copy()
+            big_neural_net_hp[hp_name]["num_units"] = hp_value["num_units"] * nb_models_per_ensemble_for_neural_net
+        #2) try a Big neural net
+        big_neural_net_models = dict()
+        for name, hp in big_neural_net_hp.items():
+            nnet = NeuralNetWrapper(**hp)
+            nnet.fit(X_train_full, y_train_full,
                      X_valid=X_test, y_valid=y_test,
                      eval_functions=eval_functions)
-        adaboost_models[name] = adaboost
-    models_stats["adaboost"] = {name:model.stats for name, model in adaboost_models.items()}
+            big_neural_net_models[name] = nnet
+        models_stats["big_neural_net"] = {name:model.stats for name, model in big_neural_net_models.items()}
+    
+    #3) try bagging with the best and baseline architecture
+    if bagging is True:
+        bagging_models = dict()
+        for name, hp in neural_net_hp.items():
+            bagging = Bagging(base_estimator=NeuralNetWrapper(**hp), 
+                              n_estimators=nb_models_per_ensemble)
+            bagging.fit(X_train_full, y_train_full, 
+                        X_valid=X_test, y_valid=y_test,
+                        eval_functions=eval_functions)
+            bagging_models[name] = bagging
+        models_stats["bagging"] = {name:model.stats for name, model in bagging_models.items()}
 
+    #4) try adaboost
+    if adaboost is True:
+        adaboost_models = dict()
+        for name, hp in neural_net_hp.items():
+            adaboost = AdaBoost(base_estimator=NeuralNetWrapper(**hp),
+                                n_estimators=nb_models_per_ensemble)
+            adaboost.fit(X_train_full, y_train_full, 
+                         X_valid=X_test, y_valid=y_test,
+                         eval_functions=eval_functions)
+            adaboost_models[name] = adaboost
+        models_stats["adaboost"] = {name:model.stats for name, model in adaboost_models.items()}
+    
     #5)  find best lambda for repulsive neural net
-    lambdas = dict()
-    for name, hp in neural_net_hp.items():
-        class RepulsiveNeuralNetBis(RepulsiveNeuralNet):
-            def __init__(self, **params):
-                super(RepulsiveNeuralNetBis, self).__init__(**params)
-                self.__dict__.update(hp)
-                self.ensemble_size = nb_models_per_ensemble_for_neural_net 
-        # optimize only lambda_
-        best_hp, _ = find_best_hp(RepulsiveNeuralNetBis,
-                                  minimize_fn_with_hyperopt,
-                                  X_train,
-                                  X_valid,
-                                  y_train,
-                                  y_valid,
-                                  allowed_params=["lambda_"],
-                                  max_evaluations=max_evaluations_hp)
-        lambdas[name] = best_hp.get("lambda_")
-    light.set("lambdas", lambdas)
-    #6) then retrain repulsive nets with best lambdas
-    repulsive_neural_net_models = dict()
-    for name, hp in neural_net_hp.items():
-        hp_ = hp.copy()
-        hp_["lambda_"] = lambdas[name]
-        repulsive_neural_net = RepulsiveNeuralNet(**hp_)
-        repulsive_neural_net.fit(X_train_full, y_train_full, 
-                                 X_valid=X_test, y_valid=y_test,
-                                 eval_functions=eval_functions)
-        repulsive_neural_net_models[name] = repulsive_neural_net
-    models_stats["repulsive_neural_net"] = {name:model.stats for name, model in repulsive_neural_net_models.items()}
+    if repulsive is True:
+        lambdas = dict()
+        for name, hp in neural_net_hp.items():
+            class RepulsiveNeuralNetBis(RepulsiveNeuralNet):
+                def __init__(self, **params):
+                    super(RepulsiveNeuralNetBis, self).__init__(**params)
+                    self.__dict__.update(hp)
+                    self.ensemble_size = nb_models_per_ensemble_for_neural_net 
+            # optimize only lambda_
+            best_hp, best_score = find_best_hp(RepulsiveNeuralNetBis,
+                                      minimize_fn_with_hyperopt,
+                                      X_train,
+                                      X_valid,
+                                      y_train,
+                                      y_valid,
+                                      allowed_params=["lambda_"],
+                                      max_evaluations=max_evaluations_hp)
+            rep = RepulsiveNeuralNetBis()
+            rep.lambda_ = 0.
+            rep.fit(X_train, y_train)
+            score = (rep.predict(X_valid)!=y_valid).mean()
+            if score < best_score:
+                lambdas[name] = 0.
+            else:
+                lambdas[name] = best_hp.get("lambda_")
+        light.set("lambdas", lambdas)
+        #6) then retrain repulsive nets with best lambdas
+        repulsive_neural_net_models = dict()
+        for name, hp in neural_net_hp.items():
+            hp_ = hp.copy()
+            hp_["lambda_"] = lambdas[name]
+            repulsive_neural_net = RepulsiveNeuralNet(**hp_)
+            repulsive_neural_net.fit(X_train_full, y_train_full, 
+                                     X_valid=X_test, y_valid=y_test,
+                                     eval_functions=eval_functions)
+            repulsive_neural_net_models[name] = repulsive_neural_net
+        models_stats["repulsive_neural_net"] = {name:model.stats for name, model in repulsive_neural_net_models.items()}
     light.set("models_stats", models_stats)
 
 def report_learning_curves(experiment, report_dir="report"):
@@ -246,25 +264,25 @@ if __name__ == "__main__":
     import os
     light = Light()
     light.launch()
-    
-    r = list(light.db.find({"tags": "auto_ensemble_experiment"}))
-    for i in range(len(r)):
-        try:
-            os.mkdir("reports/report_{0}".format(i + 1))
-        except Exception:
-            pass
-        report_learning_curves(r[i], "reports/report_{0}".format(i + 1))
-    light.close()
-    sys.exit(0)
+     
+    #r = list(light.db.find({"tags": "auto_ensemble_experiment"}))
+    #for i in range(len(r)):
+    #    try:
+    #        os.mkdir("reports/report_{0}".format(i + 1))
+    #    except Exception:
+    #        pass
+    #    report_learning_curves(r[i], "reports/report_{0}".format(i + 1))
+    #light.close()
+    #sys.exit(0)
 
     light.initials()
     light.tag("auto_ensemble_experiment")
 
-    ds = "covertype"
+    ds = "otto"
     light.set("dataset", ds)
     X, y = datasets.get(ds)()
     launch(X, y)
     light.endings()
-    report_learning_curves(light.cur_experiment)
+    report_learning_curves(light.cur_experiment, "report_{0}".format(ds))
     light.store_experiment()
     light.close()
