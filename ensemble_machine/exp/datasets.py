@@ -1,8 +1,9 @@
 import numpy as np
-from sklearn.datasets import make_classification
+from sklearn.datasets import make_classification, fetch_covtype
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.utils import shuffle
 import pandas as pd
+
 
 def build_make_classification():
     X, y = make_classification(n_samples=1000, n_features=20,
@@ -10,6 +11,7 @@ def build_make_classification():
     X = X.astype(np.float32)
     y = y.astype(np.int32)
     return X, y
+
 
 def build_otto():
     X = pd.read_csv("otto/train.csv")
@@ -25,8 +27,17 @@ def build_otto():
     return X, y
 
 
+def build_covertype():
+    data = fetch_covtype()
+    X, y = data["data"], data["target"]
+    X = StandardScaler().fit_transform(X)
+    X = X.astype(np.float32)
+    y = LabelEncoder().fit_transform(y)
+    y = y.astype(np.int32)
+    return X, y
 
 datasets = dict(
     make_classification=build_make_classification,
-    otto=build_otto
+    otto=build_otto,
+    covertype=build_covertype,
 )
