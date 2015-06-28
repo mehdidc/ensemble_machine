@@ -36,8 +36,21 @@ def build_covertype():
     y = y.astype(np.int32)
     return X, y
 
+
+def build_segment():
+    data = pd.read_csv("segment/segment.dat", sep=" ")
+    data = np.array(data.values)
+    X, y = data[:, 0:-1], data[:, -1]
+    X = StandardScaler().fit_transform(X)
+    X = X.astype(np.float32)
+    y = LabelEncoder().fit_transform(y)
+    y = y.astype(np.int32)
+    return X, y
+
+
 datasets = dict(
     make_classification=build_make_classification,
     otto=build_otto,
     covertype=build_covertype,
+    segment=build_segment
 )
