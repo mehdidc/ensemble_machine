@@ -37,11 +37,12 @@ class RepulsiveNeuralNet(object):
         ensemble_size = Param(initial=5, interval=[1, 10], type='int'),
         lambda_ = Param(initial=0, interval=[0, 5], type='real'),
     ))
-    def __init__(self, num_units=50, nb_layers=1, batch_size=128,
+    def __init__(self, num_units=1, nb_layers=1, batch_size=128,
                  learning_rate=1.,
                  learning_rate_annealing=0.,
                  max_nb_epochs=100,
                  early_stopping_on=None,
+                 num_units_multiplier=10,
                  ensemble_size=5,
                  lambda_=0):
 
@@ -52,6 +53,7 @@ class RepulsiveNeuralNet(object):
         self.learning_rate_annealing = learning_rate_annealing
         self.max_nb_epochs = int(max_nb_epochs)
         self.early_stopping_on = early_stopping_on
+        self.num_units_multiplier = num_units_multiplier
 
         self.ensemble_size = int(ensemble_size)
         self.lambda_ = 0
@@ -111,7 +113,7 @@ class RepulsiveNeuralNet(object):
         for i in range(self.ensemble_size):
             h = x_in
             for j in range(self.nb_layers):
-                h = layers.DenseLayer(h, num_units=self.num_units,
+                h = layers.DenseLayer(h, num_units=self.num_units * self.num_units_multiplier,
                                       W=init.GlorotUniform(),
                                       nonlinearity=nonlinearities.rectify)
             hidden.append(h)

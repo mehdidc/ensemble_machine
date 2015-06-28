@@ -37,7 +37,8 @@ class MyBatchOptimizer(BatchOptimizer):
 class NeuralNetWrapper(object):
 
     params = dict(
-        num_units = Param(initial=50, interval=[10, 500], type='int'),
+        num_units = Param(initial=1, interval=[1, 100], type='int'),
+        num_units_multiplier = Param(initial=10, interval=[10], type='choice'),
         nb_layers = Param(initial=1, interval=[1, 3], type='int'),
         batch_size = Param(initial=128, interval=[10, 50, 100, 128, 256, 512], type='choice'),
         learning_rate = Param(initial=1., interval=[-5, -1], type='real', scale='log10'),
@@ -48,7 +49,8 @@ class NeuralNetWrapper(object):
                  learning_rate=1.,
                  learning_rate_annealing=0.,
                  max_nb_epochs=100,
-                 early_stopping_on=None):
+                 early_stopping_on=None,
+                 num_units_multiplier=10):
         self.num_units = int(num_units)
         self.nb_layers = int(nb_layers)
         self.batch_size = int(batch_size)
@@ -56,6 +58,7 @@ class NeuralNetWrapper(object):
         self.learning_rate_annealing = learning_rate_annealing
         self.max_nb_epochs = int(max_nb_epochs)
         self.early_stopping_on = early_stopping_on
+        self.num_units_multiplier = num_units_multiplier
 
         self.stats = None
         self.model = None
@@ -131,7 +134,7 @@ class NeuralNetWrapper(object):
         params =  dict()
         h = x_in
         for i in range(self.nb_layers):
-            h = layers.DenseLayer(h, num_units=self.num_units,
+            h = layers.DenseLayer(h, num_units=self.num_units * self.num_units_multiplier,
                                   W=init.GlorotUniform(),
                                   nonlinearity=nonlinearities.rectify)
         y_out = layers.DenseLayer(h, num_units=nb_outputs,
