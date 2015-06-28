@@ -79,9 +79,9 @@ class RepulsiveNeuralNet(object):
             whole_dataset_in_device=True
         )
         if self.early_stopping_on is not None:
-            params.update(dict(patience_nb_epochs=5,
-                               patience_check_each=3,
-                               patience_stat="logloss_{0}".format(self.early_stopping_on)))
+            optimizer_params.update(dict(patience_nb_epochs=5,
+                                         patience_check_each=3,
+                                         patience_stat="logloss_{0}".format(self.early_stopping_on)))
         optimizer = MyBatchOptimizer(**optimizer_params)
         optimizer.X_train, optimizer.y_train = X, y
         optimizer.X_valid, optimizer.y_valid = X_valid, y_valid

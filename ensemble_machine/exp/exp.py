@@ -52,6 +52,7 @@ def launch(X, y, seed=100):
             batch_size=256,
             learning_rate=0.1,
             learning_rate_annealing=0.1,
+            early_stopping_on="train"
     )
     nb_models_per_ensemble = 10
     nb_models_per_ensemble_for_neural_net = 10
@@ -74,6 +75,7 @@ def launch(X, y, seed=100):
                               X_valid,
                               y_train,
                               y_valid,
+                              default_params=dict(early_stopping_on="train"),
                               max_evaluations=max_evaluations_hp)
     gc.collect()
     neural_net_hp[Best] = best_hp
@@ -288,11 +290,12 @@ if __name__ == "__main__":
         assert light_connected is True
         r = list(light.db.find({"tags": "auto_ensemble_experiment"}))
         for i in range(len(r)):
+            report_dir = "reports/report_{0}_{1}".format(i + 1, r[i].get("dataset"))
             try:
-                os.mkdir("reports/report_{0}".format(i + 1))
+                os.mkdir(report_dir)
             except Exception:
                 pass
-            report_learning_curves(r[i], "reports/report_{0}".format(i + 1))
+            report_learning_curves(r[i], report_dir)
         light.close()
         sys.exit(0)
 
