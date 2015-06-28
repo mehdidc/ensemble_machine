@@ -55,10 +55,10 @@ def launch(X, y, seed=100):
     )
     nb_models_per_ensemble = 10
     nb_models_per_ensemble_for_neural_net = 10
-    max_evaluations_hp = 1
-    big_neural_net = False
-    bagging = False
-    adaboost = False
+    max_evaluations_hp = 20
+    big_neural_net = True
+    bagging = True
+    adaboost = True
     repulsive = True
     light.set("nb_models_per_ensemble", nb_models_per_ensemble)
     light.set("nb_models_per_ensemble_for_neural_net", nb_models_per_ensemble_for_neural_net)
