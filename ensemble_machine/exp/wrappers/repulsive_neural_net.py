@@ -9,6 +9,8 @@ from sklearn.cross_validation import StratifiedShuffleSplit
 import theano.tensor as T
 import pandas
 
+import theano
+
 def loss_function(pred, real, **params):
 
     lambda_ = params.get("lambda")
@@ -29,19 +31,29 @@ def loss_function(pred, real, **params):
 from wrappers.neural_net import MyBatchOptimizer, NeuralNetWrapper
 
 class RepulsiveNeuralNet(object):
-    
+
     params = NeuralNetWrapper.params.copy()
     params.update(dict(
         ensemble_size = Param(initial=5, interval=[1, 10], type='int'),
         lambda_ = Param(initial=0, interval=[0, 5], type='real'),
     ))
-    def __init__(self, num_units=50, nb_layers=1, batch_size=128, learning_rate=1., ensemble_size=5, lambda_=0):
-        self.num_units = num_units
-        self.nb_layers = nb_layers
-        self.model = None
-        self.batch_size = batch_size
+    def __init__(self, num_units=50, nb_layers=1, batch_size=128,
+                 learning_rate=1.,
+                 learning_rate_annealing=0.,
+                 max_nb_epochs=100,
+                 early_stopping_on=None,
+                 ensemble_size=5,
+                 lambda_=0):
+
+        self.num_units = int(num_units)
+        self.nb_layers = int(nb_layers)
+        self.batch_size = int(batch_size)
         self.learning_rate = learning_rate
-        self.ensemble_size = ensemble_size
+        self.learning_rate_annealing = learning_rate_annealing
+        self.max_nb_epochs = int(max_nb_epochs)
+        self.early_stopping_on = early_stopping_on
+
+        self.ensemble_size = int(ensemble_size)
         self.lambda_ = 0
 
         self.stats = None
@@ -49,21 +61,35 @@ class RepulsiveNeuralNet(object):
         self.classes_ = None
         self.n_classes_ = None
         self.label_encoder = None
+        self.cur_learning_rate = None
 
-    def fit(self, X, y, X_valid=None, y_valid=None, eval_functions=default_eval_functions):
-        optimizer = MyBatchOptimizer(verbose=2, 
-                                     batch_size=self.batch_size, 
-                                     max_nb_epochs=100, 
-                                     patience_nb_epochs=5,
-                                     patience_stat="logloss_valid" if X_valid is not None else "logloss_train",
-                                     whole_dataset_in_device=True)
+    def fit(self, X, y,
+            X_valid=None, y_valid=None,
+            eval_functions=default_eval_functions):
+
+
+        cur_learning_rate = theano.shared(np.array(self.learning_rate, dtype="float32"))
+        optimizer_params = dict(
+            verbose=2,
+            batch_size=self.batch_size,
+            optimization_procedure=(updates.rmsprop, {"learning_rate": cur_learning_rate}),
+            max_nb_epochs=self.max_nb_epochs,
+            whole_dataset_in_device=True
+        )
+        if self.early_stopping_on is not None:
+            params.update(dict(patience_nb_epochs=5,
+                               patience_check_each=3,
+                               patience_stat="logloss_{0}".format(self.early_stopping_on)))
+        optimizer = MyBatchOptimizer(**optimizer_params)
         optimizer.X_train, optimizer.y_train = X, y
         optimizer.X_valid, optimizer.y_valid = X_valid, y_valid
         optimizer.eval_functions = eval_functions
-        architecture, params = self.build_architecture(nb_features=X.shape[1], 
+        optimizer.cur_learning_rate = cur_learning_rate
+        optimizer.learning_rate_annealing = self.learning_rate_annealing
+        architecture, params = self.build_architecture(nb_features=X.shape[1],
                                                        nb_outputs=len(set(tuple(y.tolist()))))
         params["lambda"] = self.lambda_
-        self.model = NeuralNet(architecture, optimizer, 
+        self.model = NeuralNet(architecture, optimizer,
                                loss_params=params,
                                loss_function=loss_function)
         self.model.fit(X, y)
@@ -83,14 +109,15 @@ class RepulsiveNeuralNet(object):
         outputs = []
         collab = []
         for i in range(self.ensemble_size):
-            h = layers.DenseLayer(x_in, num_units=self.num_units,
-                                  W=init.GlorotUniform(),
-                                  nonlinearity=nonlinearities.rectify)
+            h = x_in
+            for j in range(self.nb_layers):
+                h = layers.DenseLayer(h, num_units=self.num_units,
+                                      W=init.GlorotUniform(),
+                                      nonlinearity=nonlinearities.rectify)
             hidden.append(h)
             y_pre_i = layers.DenseLayer(h, num_units=nb_outputs,
                                         W=init.GlorotUniform(),
                                         nonlinearity=nonlinearities.linear)
-
             pre_outputs.append(y_pre_i)
             y_i = layers.NonlinearityLayer(y_pre_i,
                                            nonlinearity=nonlinearities.softmax)
@@ -109,11 +136,11 @@ if __name__ == "__main__":
     from datasets import datasets
     X, y = datasets.get("make_classification")()
     n = RepulsiveNeuralNet(lambda_=0.1)
-    from hp import find_best_hp, minimize_fn_with_hyperopt
+    from hp_toolkit.hp import find_best_hp, minimize_fn_with_hyperopt
     from sklearn.cross_validation import train_test_split
 
-    X_train, X_valid, y_train, y_valid = train_test_split(X, 
-                                                          y, 
+    X_train, X_valid, y_train, y_valid = train_test_split(X,
+                                                          y,
                                                           test_size=0.25)
     best_hp, _ = find_best_hp(RepulsiveNeuralNet,
                               minimize_fn_with_hyperopt,
@@ -121,5 +148,5 @@ if __name__ == "__main__":
                               X_valid,
                               y_train,
                               y_valid,
-                              max_evaluations=10)
+                              max_evaluations=1)
     print(best_hp)

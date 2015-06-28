@@ -16,13 +16,14 @@ import pandas
 
 from hp_toolkit.hp import Param, parallelizer, minimize_fn_with_hyperopt, find_best_hp
 from utils import logloss
-from wrappers.py_neural import PyneuralWrapper
 from wrappers.neural_net import NeuralNetWrapper
-from wrappers.bagging import Bagging 
+from wrappers.bagging import Bagging
 from wrappers.adaboost import AdaBoost
 from wrappers.repulsive_neural_net import RepulsiveNeuralNet
 
 from lightexperiments.light import Light
+
+import gc
 
 
 def launch(X, y, seed=100):
@@ -49,14 +50,15 @@ def launch(X, y, seed=100):
             num_units=100,
             nb_layers=1,
             batch_size=256,
-            learning_rate=0.1
+            learning_rate=0.1,
+            learning_rate_annealing=0.1,
     )
     nb_models_per_ensemble = 10
     nb_models_per_ensemble_for_neural_net = 10
-    max_evaluations_hp = 20 
-    big_neural_net = True 
-    bagging = True
-    adaboost = True
+    max_evaluations_hp = 1
+    big_neural_net = False
+    bagging = False
+    adaboost = False
     repulsive = True
     light.set("nb_models_per_ensemble", nb_models_per_ensemble)
     light.set("nb_models_per_ensemble_for_neural_net", nb_models_per_ensemble_for_neural_net)
@@ -73,6 +75,7 @@ def launch(X, y, seed=100):
                               y_train,
                               y_valid,
                               max_evaluations=max_evaluations_hp)
+    gc.collect()
     neural_net_hp[Best] = best_hp
     neural_net_best_score = best_score
     light.set("neural_net_hp", neural_net_hp)
@@ -90,19 +93,22 @@ def launch(X, y, seed=100):
             nnet.fit(X_train_full, y_train_full,
                      X_valid=X_test, y_valid=y_test,
                      eval_functions=eval_functions)
+
+            gc.collect()
             big_neural_net_models[name] = nnet
         models_stats["big_neural_net"] = {name:model.stats for name, model in big_neural_net_models.items()}
-    
+
     #3) try bagging with the best and baseline architecture
     if bagging is True:
         bagging_models = dict()
         for name, hp in neural_net_hp.items():
-            bagging = Bagging(base_estimator=NeuralNetWrapper(**hp), 
+            bagging = Bagging(base_estimator=NeuralNetWrapper(**hp),
                               n_estimators=nb_models_per_ensemble)
-            bagging.fit(X_train_full, y_train_full, 
+            bagging.fit(X_train_full, y_train_full,
                         X_valid=X_test, y_valid=y_test,
                         eval_functions=eval_functions)
             bagging_models[name] = bagging
+            gc.collect()
         models_stats["bagging"] = {name:model.stats for name, model in bagging_models.items()}
 
     #4) try adaboost
@@ -111,12 +117,14 @@ def launch(X, y, seed=100):
         for name, hp in neural_net_hp.items():
             adaboost = AdaBoost(base_estimator=NeuralNetWrapper(**hp),
                                 n_estimators=nb_models_per_ensemble)
-            adaboost.fit(X_train_full, y_train_full, 
+            adaboost.fit(X_train_full, y_train_full,
                          X_valid=X_test, y_valid=y_test,
                          eval_functions=eval_functions)
             adaboost_models[name] = adaboost
+
+            gc.collect()
         models_stats["adaboost"] = {name:model.stats for name, model in adaboost_models.items()}
-    
+
     #5)  find best lambda for repulsive neural net
     if repulsive is True:
         lambdas = dict()
@@ -125,7 +133,7 @@ def launch(X, y, seed=100):
                 def __init__(self, **params):
                     super(RepulsiveNeuralNetBis, self).__init__(**params)
                     self.__dict__.update(hp)
-                    self.ensemble_size = nb_models_per_ensemble_for_neural_net 
+                    self.ensemble_size = nb_models_per_ensemble_for_neural_net
             # optimize only lambda_
             best_hp, best_score = find_best_hp(RepulsiveNeuralNetBis,
                                       minimize_fn_with_hyperopt,
@@ -143,17 +151,20 @@ def launch(X, y, seed=100):
                 lambdas[name] = 0.
             else:
                 lambdas[name] = best_hp.get("lambda_")
+
+            gc.collect()
         light.set("lambdas", lambdas)
-        #6) then retrain repulsive nets with best lambdas
+        #6) then retrain repulsive nets with best lambdas found
         repulsive_neural_net_models = dict()
         for name, hp in neural_net_hp.items():
             hp_ = hp.copy()
             hp_["lambda_"] = lambdas[name]
             repulsive_neural_net = RepulsiveNeuralNet(**hp_)
-            repulsive_neural_net.fit(X_train_full, y_train_full, 
+            repulsive_neural_net.fit(X_train_full, y_train_full,
                                      X_valid=X_test, y_valid=y_test,
                                      eval_functions=eval_functions)
             repulsive_neural_net_models[name] = repulsive_neural_net
+            gc.collect()
         models_stats["repulsive_neural_net"] = {name:model.stats for name, model in repulsive_neural_net_models.items()}
     light.set("models_stats", models_stats)
 
@@ -193,7 +204,7 @@ def report_learning_curves(experiment, report_dir="report"):
                 plt.title("{0} {1} curves".format(model_name, name))
                 plt.xlabel("epochs")
                 plt.ylabel(name)
-                plt.legend()
+                plt.legend(loc='best')
                 filename = "{0}_{1}_{2}.png".format(model_name, config_name, name)
                 plt.savefig(os.path.join(report_dir, filename))
                 html.append("<img src='{0}'></img>".format(filename))
@@ -204,26 +215,27 @@ def report_learning_curves(experiment, report_dir="report"):
         html.append("<hr />")
 
     stats = experiment["models_stats"]
-    architectures = stats.values()[0].keys()
+    if len(stats) > 0:
+        architectures = stats.values()[0].keys()
 
-    for name in ("logloss_train","accuracy_train", "logloss_valid", "accuracy_valid"):
-        for a in architectures:
-            plt.clf()
-            for model_name, config in stats.items():
-                    st = config[a]
-                    try:
-                        L = [s[name] for s in st]
-                    except:
-                        continue
-                    iterations = range(len(L))
-                    plt.plot(iterations, L, label=model_name)
-            plt.xlabel("epochs")
-            plt.ylabel(name)
-            plt.legend()
-            filename = "all-{0}-{1}.png".format(a, name)
-            plt.savefig(os.path.join(report_dir, filename))
-            html.append("<h1>All {0} scores with {1}</h1>".format(name, a))
-            html.append("<img src='{0}'></img>'".format(filename))
+        for name in ("logloss_train","accuracy_train", "logloss_valid", "accuracy_valid"):
+            for a in architectures:
+                plt.clf()
+                for model_name, config in stats.items():
+                        st = config[a]
+                        try:
+                            L = [s[name] for s in st]
+                        except:
+                            continue
+                        iterations = range(len(L))
+                        plt.plot(iterations, L, label=model_name)
+                plt.xlabel("epochs")
+                plt.ylabel(name)
+                plt.legend(loc='best')
+                filename = "all-{0}-{1}.png".format(a, name)
+                plt.savefig(os.path.join(report_dir, filename))
+                html.append("<h1>All {0} scores with {1}</h1>".format(name, a))
+                html.append("<img src='{0}'></img>'".format(filename))
 
 
     html.append("<p><strong>Duration</strong> : {0:.2f} sec</p>".format(experiment.get("duration")))
@@ -238,15 +250,15 @@ def report_learning_curves(experiment, report_dir="report"):
             """First find best neural net architecture, the number of evalutions for
                 hyper-parameter optimization was : {0}, the best hyper-parameters found were : {1}""".format(e["max_evaluations_hp"],
                                                                                                              e["neural_net_hp"]["best"]),
-            """then train a big neural net which is the same as baseline and 
-               best but where the number of units are multiplied by 
+            """then train a big neural net which is the same as baseline and
+               best but where the number of units are multiplied by
                the size of the ensemble which is {0}""".format(e["nb_models_per_ensemble_for_neural_net"]),
-            """then train bags of neural nets with baseline and best architecture, 
+            """then train bags of neural nets with baseline and best architecture,
                the number of iterations was {0}""".format(e["nb_models_per_ensemble"]),
-            """then train adaboost of neural nets with baseline and best architecture, 
+            """then train adaboost of neural nets with baseline and best architecture,
                the number of iterations was {0}""".format(e["nb_models_per_ensemble"]),
             """then try repulsive neural nets, first take baseline and best architecture, then find best lambda for both of them.
-               lambda for baseline was {0}, lambda for best was {1}.""".format(e["lambdas"]["baseline"], e["lambdas"]["best"]),
+               lambda for baseline was {0}, lambda for best was {1}.""".format(e["lambdas"]["baseline"] if "lambdas" in e else "", e["lambdas"]["best"] if "lambdas" in e else ""),
             """then retrain repulsive neural nets with the best lambdas found with baseline and best architecture, the other hyper-paremeters
                being exactly the same than baseline and best, the size of the ensemble was {0}""".format(e["nb_models_per_ensemble_for_neural_net"])
     ]
@@ -262,27 +274,48 @@ def report_learning_curves(experiment, report_dir="report"):
 if __name__ == "__main__":
     from datasets import datasets
     import os
+    import sys
     light = Light()
-    light.launch()
-     
-    #r = list(light.db.find({"tags": "auto_ensemble_experiment"}))
-    #for i in range(len(r)):
-    #    try:
-    #        os.mkdir("reports/report_{0}".format(i + 1))
-    #    except Exception:
-    #        pass
-    #    report_learning_curves(r[i], "reports/report_{0}".format(i + 1))
-    #light.close()
-    #sys.exit(0)
+    try:
+        light.launch()
+    except Exception:
+        light_connected = False
+    else:
+        light_connected = True
+
+    save_reports = False
+    if save_reports is True:
+        assert light_connected is True
+        r = list(light.db.find({"tags": "auto_ensemble_experiment"}))
+        for i in range(len(r)):
+            try:
+                os.mkdir("reports/report_{0}".format(i + 1))
+            except Exception:
+                pass
+            report_learning_curves(r[i], "reports/report_{0}".format(i + 1))
+        light.close()
+        sys.exit(0)
 
     light.initials()
     light.tag("auto_ensemble_experiment")
 
-    ds = "otto"
+    ds = "make_classification"
     light.set("dataset", ds)
     X, y = datasets.get(ds)()
     launch(X, y)
     light.endings()
-    report_learning_curves(light.cur_experiment, "report_{0}".format(ds))
-    light.store_experiment()
-    light.close()
+
+    report_dir = "{0}/report_{1}".format(os.getcwd(), ds)
+    if not os.path.exists(report_dir):
+        os.mkdir(report_dir)
+    report_learning_curves(light.cur_experiment, report_dir)
+
+    if light_connected is True:
+        light.store_experiment()
+        light.close()
+    else:
+        import cPickle as pickle
+        import datetime
+        fd = open("report_{0}".format(datetime.datetime.now().isoformat()), "w")
+        pickle.dump(light.cur_experiment, fd)
+        fd.close()
