@@ -299,7 +299,7 @@ if __name__ == "__main__":
     light.initials()
     light.tag("auto_ensemble_experiment")
 
-    ds = "make_classification"
+    ds = sys.argv[1] if len(sys.argv)==2 else "make_classification"
     light.set("dataset", ds)
     X, y = datasets.get(ds)()
     launch(X, y)
