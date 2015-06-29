@@ -6,7 +6,7 @@ from itertools import izip
 from sklearn.isotonic import IsotonicRegression
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.linear_model import LinearRegression
-#from wrappers.neural_net import NeuralNetWrapper
+from wrappers.neural_net import NeuralNetWrapper
 
 class Dummy(object):
     pass
@@ -14,11 +14,13 @@ class Dummy(object):
 class AdaBoost(object):
 
     params = dict(
+            n_estimators=Param(initial=1, interval=[1], type='choice'),
     )
+    params.update(NeuralNetWrapper.params)
 
     def __init__(self, **params):
-        print(params)
-        self.clf = AdaBoostClassifier(**params)
+        self.clf = AdaBoostClassifier(n_estimators=params.get("n_estimators"),
+                                      base_estimator=NeuralNetWrapper(**params))
 
     def fit(self, X, y, X_valid=None, y_valid=None, eval_functions=None):
         if eval_functions is None:

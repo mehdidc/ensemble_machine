@@ -50,7 +50,8 @@ class NeuralNetWrapper(object):
                  learning_rate_annealing=0.,
                  max_nb_epochs=100,
                  early_stopping_on=None,
-                 num_units_multiplier=10):
+                 num_units_multiplier=10,
+                 **kwargs):
         self.num_units = int(num_units)
         self.nb_layers = int(nb_layers)
         self.batch_size = int(batch_size)
