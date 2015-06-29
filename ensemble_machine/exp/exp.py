@@ -32,8 +32,8 @@ def launch(X, y, seed=100):
     light.set_seed(seed)
 
 
-    fast_test = False 
-    
+    fast_test = False
+
     X, y = shuffle(X, y)
     if fast_test is True:
         X=X[0:100]
@@ -76,7 +76,7 @@ def launch(X, y, seed=100):
             early_stopping_on="train"
     )
     neural_net_hp[Baseline].update(forced_hp_params)
-    
+
     light.set("nb_models_per_ensemble", nb_models_per_ensemble)
     light.set("nb_models_per_ensemble_for_neural_net", nb_models_per_ensemble_for_neural_net)
     light.set("max_evaluations_hp", max_evaluations_hp)
@@ -85,7 +85,7 @@ def launch(X, y, seed=100):
     light.set("fast_test", fast_test)
     models_stats = OrderedDict()
 
-    def find_best_hp_(model_class, allowed_params=None, default_params=None):
+    def find_best_hp_(model_class, allowed_params=None, not_allowed_params=None, default_params=None):
         if default_params is None:
             default_params = dict()
         if "early_stopping_on" not in default_params:
@@ -99,6 +99,7 @@ def launch(X, y, seed=100):
                                 y_train,
                                 y_valid,
                                 default_params=default_params,
+                                not_allowed_params=not_allowed_params,
                                 allowed_params=allowed_params,
                                 max_evaluations=max_evaluations_hp)
         best_hp.update(forced_hp_params)
@@ -115,7 +116,7 @@ def launch(X, y, seed=100):
     if big_neural_net is True:
 
         big_neural_net_hp = dict()
-        num_units_multiplier = (nb_models_per_ensemble_for_neural_net * 
+        num_units_multiplier = (nb_models_per_ensemble_for_neural_net *
                                 NeuralNetWrapper.params.get("num_units_multiplier").initial)
         for hp_name, hp_value in neural_net_hp.items():
             big_neural_net_hp[hp_name] = hp_value.copy()
@@ -125,7 +126,7 @@ def launch(X, y, seed=100):
             best_hp, best_score = find_best_hp_(NeuralNetWrapper, default_params=default_params)
             big_neural_net_hp[Best] = best_hp
         light.set("big_neural_net_hp", big_neural_net_hp)
-        
+
         #2) try a Big neural net
         big_neural_net_models = dict()
         for name, hp in big_neural_net_hp.items():
@@ -153,14 +154,17 @@ def launch(X, y, seed=100):
     #4) try adaboost
     if adaboost is True:
         adaboost_hp = dict()
-        
+
         for hp_name, hp_value in neural_net_hp.items():
             adaboost_hp[hp_name] = hp_value.copy()
             adaboost_hp[hp_name]["n_estimators"] = nb_models_per_ensemble
- 
+
         if find_best_architecture_for_each is True:
             default_params = dict(n_estimators=nb_models_per_ensemble)
-            best_hp, best_score = find_best_hp_(AdaBoost, default_params=default_params)
+            best_hp, best_score = find_best_hp_(AdaBoost,
+                                                not_allowed_params=["n_estimators"],
+                                                default_params=default_params)
+            best_hp["n_estimators"] = nb_models_per_ensemble
             adaboost_hp[Best] = best_hp
         light.set("adaboost_hp", adaboost_hp)
 
@@ -183,22 +187,26 @@ def launch(X, y, seed=100):
             repulsive_neural_net_hp[hp_name] = hp_value.copy()
             repulsive_neural_net_hp[hp_name]["ensemble_size"] = nb_models_per_ensemble_for_neural_net
 
- 
+
         if find_best_architecture_for_each is True:
             default_params = dict(
                     ensemble_size=nb_models_per_ensemble_for_neural_net
             )
-            best_hp, best_score = find_best_hp_(RepulsiveNeuralNet, default_params=default_params)
+            best_hp, best_score = find_best_hp_(RepulsiveNeuralNet,
+                                                not_allowed_params=["ensemble_size"],
+                                                default_params=default_params)
+
+            best_hp["ensemble_size"] = nb_models_per_ensemble_for_neural_net
             repulsive_neural_net_hp[Best] = best_hp
             lambdas[Best] = best_hp["lambda_"]
             gc.collect()
- 
+
         for name, hp in repulsive_neural_net_hp.items():
             if name == Best and find_best_architecture_for_each is True: # don't optimize lambda for Best, it has already been done
                 continue
             # optimize only lambda_
-            best_hp, best_score = find_best_hp_(RepulsiveNeuralNet, 
-                                                allowed_params=["lambda_"], 
+            best_hp, best_score = find_best_hp_(RepulsiveNeuralNet,
+                                                allowed_params=["lambda_"],
                                                 default_params=hp)
             rep = RepulsiveNeuralNet(**hp)
             rep.lambda_ = 0.
@@ -340,7 +348,7 @@ if __name__ == "__main__":
         print("Connected to mongo")
         light_connected = True
 
-    save_reports = False 
+    save_reports = False
     only_last = True
     if save_reports is True:
         assert light_connected is True

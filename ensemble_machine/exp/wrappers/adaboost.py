@@ -14,7 +14,7 @@ class Dummy(object):
 class AdaBoost(object):
 
     params = dict(
-            n_estimators=Param(initial=1, interval=[1], type='choice'),
+            n_estimators=Param(initial=1, interval=[1, 10], type='int'),
     )
     params.update(NeuralNetWrapper.params)
 
